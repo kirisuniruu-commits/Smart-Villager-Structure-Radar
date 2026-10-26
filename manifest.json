@@ -1,0 +1,8 @@
+{
+  "type": "preload-native",
+  "name": "Smart Villager & Structure Radar",
+  "author": "ChrisNiruu",
+  "version": "0.1.0",
+  "entry": "libvillager_radar.so",
+  "minecraft_versions": []
+}
