@@ -1,0 +1,61 @@
+name: Build Smart Villager & Structure Radar
+
+# Smart Villager & Structure Radar - created by ChrisNiruu
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  host-tests:
+    name: Unit tests (PC)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run tests
+        run: |
+          cmake -S . -B build-host -DRADAR_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-host
+          ctest --test-dir build-host --output-on-failure
+
+  android:
+    name: Build .so (arm64-v8a) and package .levipack
+    needs: host-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (Android NDK)
+        run: |
+          NDK="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}"
+          echo "Using NDK: $NDK"
+          cmake -S . -B build-android -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-24 \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build-android --target villager_radar
+
+      - name: Package
+        run: |
+          mkdir -p dist/pkg
+          cp manifest.json dist/pkg/
+          cp build-android/out/arm64-v8a/libvillager_radar.so dist/pkg/
+          (cd dist/pkg && zip -r ../SmartVillagerStructureRadar.levipack .)
+          cp dist/pkg/libvillager_radar.so dist/
+          ls -la dist
+
+      - name: Upload .levipack
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartVillagerStructureRadar-levipack
+          path: dist/SmartVillagerStructureRadar.levipack
+
+      - name: Upload raw .so
+        uses: actions/upload-artifact@v4
+        with:
+          name: libvillager_radar-arm64-v8a
+          path: dist/libvillager_radar.so
+          
