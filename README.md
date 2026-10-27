@@ -26,6 +26,8 @@ structure overlays on the HUD. GitHub Actions compiles the library and packages 
 | Demo mode | Implemented |
 | **Live game data** (reading villagers / structures from Minecraft) | **Not implemented yet** - needs byte signatures and struct offsets for your exact Minecraft build, see [docs/SIGNATURES.md](docs/SIGNATURES.md). Until then the native bridge fails closed: nothing is hooked, nothing is drawn. |
 
+**Probe mode** (Diagnostics): shows raw game memory as hex on the HUD so struct offsets can be worked out from a screenshot. Hooks for `LevelRendererCamera::render`, `InGamePlayScreen::_renderLevelPrep` and `DataDrivenRenderer::render` were located in Minecraft 1.26.52.03 and are verified unique in that build.
+
 Nothing in this repo has been run inside the game yet. Android-side code was only syntax-checked against stub headers.
 
 ## Install
