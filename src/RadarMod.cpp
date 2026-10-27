@@ -16,6 +16,7 @@
 #include <pl/ModMenuConfig.hpp>
 
 #include "GameBridge.hpp"
+#include "Probe.hpp"
 #include "radar/Config.hpp"
 #include "radar/Renderer.hpp"
 
@@ -148,6 +149,13 @@ std::string buildSchemaJson(const radar::RadarConfig &d) {
   toggle("demoMode", "Demo Mode (test scene)", d.demoMode, "Diagnostics",
          "Draws a synthetic scene so you can test the menu and both presets.");
 
+  toggle("probeMode", "Probe Mode (memory dump on screen)", d.probeMode, "Diagnostics",
+         "Shows raw game memory as hex so offsets can be found from a screenshot.");
+  {
+    auto n = node("probePage", "Probe Page (0-5)", ConfigControlTypeV2::SliderInt, "0", "Diagnostics");
+    n.minValue = "0"; n.maxValue = "5"; n.step = "1";
+    b.node(std::move(n));
+  }
   {
     auto n = node("credits", radar::kCredit, ConfigControlTypeV2::Info, "", "Credits");
     b.node(std::move(n));
@@ -179,6 +187,8 @@ class RadarMod {
             .config("scale", "Overlay Scale", pl::modmenu::ConfigType::SliderFloat, "1.0", "0.5", "2.0")
             .config("mode", "Performance Preset", pl::modmenu::ConfigType::Radio, "0", "Performance,Quality")
             .config("demoMode", "Demo Mode (test scene)", pl::modmenu::ConfigType::Toggle, "false")
+            .config("probeMode", "Probe Mode (memory dump on screen)", pl::modmenu::ConfigType::Toggle, "false")
+            .config("probePage", "Probe Page (0-5)", pl::modmenu::ConfigType::SliderInt, "0", "0", "5")
             .onToggle([this](std::string_view, bool enabled) { setEnabled(enabled); })
             .onConfigChanged([this](std::string_view, std::string_view key, std::string_view value) {
               std::lock_guard<std::mutex> lock(mMutex);
@@ -257,6 +267,16 @@ class RadarMod {
       }
 
       const auto surface = pl::modmenu::getHudSurfaceSize();
+      radar::probe::g_on.store(cfg.probeMode, std::memory_order_relaxed);
+      if (cfg.probeMode) {
+        if (surface.width > 0) {
+          toDrawCommands(radar::probe::draw(cfg.probePage, surface.width), cmds);
+          pl::modmenu::submitDrawCommands(kModuleId, cmds);
+          wasDrawing = true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        continue;
+      }
       radar::SnapshotSource &src = cfg.demoMode ? *mDemo : *mNative;
       const bool live = surface.width > 0 && surface.height > 0 &&
                         src.poll(snap, cfg, surface.width, surface.height);
