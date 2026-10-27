@@ -37,6 +37,10 @@ struct RadarConfig {
 
   // Draws synthetic data so menu + rendering can be tested without game signatures
   bool demoMode = false;
+
+  // Shows raw game memory on the HUD so struct offsets can be found from a screenshot
+  bool probeMode = false;
+  int probePage = 0;  // 0..5
 };
 
 inline bool parseBool(std::string_view v) {
@@ -57,6 +61,8 @@ inline bool applyConfig(RadarConfig &c, std::string_view key, std::string_view v
   else if (key == "boundingBoxes") c.boundingBoxes = parseBool(value);
   else if (key == "distanceVectors") c.distanceVectors = parseBool(value);
   else if (key == "demoMode") c.demoMode = parseBool(value);
+  else if (key == "probeMode") c.probeMode = parseBool(value);
+  else if (key == "probePage") c.probePage = clampInt(std::atoi(s.c_str()), 0, 5);
   else if (key == "renderDistance") c.renderDistance = clampInt(std::atoi(s.c_str()), 16, 128);
   else if (key == "opacity") c.opacity = clampF(std::strtof(s.c_str(), nullptr), 0.1f, 1.0f);
   else if (key == "scale") c.scale = clampF(std::strtof(s.c_str(), nullptr), 0.5f, 2.0f);
