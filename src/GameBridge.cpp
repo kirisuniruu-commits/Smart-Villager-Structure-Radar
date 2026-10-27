@@ -2,10 +2,13 @@
 #include "GameBridge.hpp"
 
 #include <chrono>
+#include <string_view>
 
 #include <pl/Logger.hpp>
+#include <pl/memory/Hook.hpp>
 #include <pl/memory/Signature.hpp>
 
+#include "Probe.hpp"
 #include "Signatures.hpp"
 #include "radar/Demo.hpp"
 
@@ -31,6 +34,26 @@ class DemoSource final : public SnapshotSource {
   std::string status() const override { return "demo scene"; }
 };
 
+// ---- Probe hooks: pass-through detours that copy argument memory when probe mode is on.
+using Fn4 = void (*)(void *, void *, void *, void *);
+Fn4 g_origLevelCamera = nullptr, g_origPlayPrep = nullptr, g_origDataDriven = nullptr;
+
+void detourLevelCamera(void *t, void *ctx, void *view, void *client) {
+  probe::capture(1, ctx);
+  probe::capture(5, view);
+  probe::capture(2, client);
+  g_origLevelCamera(t, ctx, view, client);
+}
+void detourPlayPrep(void *t, void *screenCtx, void *levelRenderer, void *actor) {
+  probe::capture(3, screenCtx);
+  probe::capture(4, actor);
+  g_origPlayPrep(t, screenCtx, levelRenderer, actor);
+}
+void detourDataDriven(void *t, void *ctx, void *renderData, void *) {
+  probe::capture(0, renderData);
+  g_origDataDriven(t, ctx, renderData, nullptr);
+}
+
 class NativeSource final : public SnapshotSource {
  public:
   NativeSource() {
@@ -43,7 +66,23 @@ class NativeSource final : public SnapshotSource {
       if (pl::memory::resolveSignature(e.pattern, "libminecraftpe.so") == 0 && e.required)
         mMissing = true;
     }
-    mStatus = mMissing ? "inactive: game signatures not configured for this Minecraft build"
+    int hooked = 0;
+    auto install = [&](const char *name, void *detour, Fn4 *orig) {
+      for (const auto &e : sigs::kEntries) {
+        if (std::string_view(e.name) != name || e.pattern[0] == '\0') continue;
+        const auto addr = pl::memory::resolveSignature(e.pattern, "libminecraftpe.so");
+        if (addr == 0) { log.warn("probe: {} not found in this build", name); return; }
+        if (pl::memory::hook(reinterpret_cast<pl::memory::FuncPtr>(addr),
+                             reinterpret_cast<pl::memory::FuncPtr>(detour),
+                             reinterpret_cast<pl::memory::FuncPtr *>(orig)) == 0) ++hooked;
+        else log.warn("probe: hook failed for {}", name);
+        return;
+      }
+    };
+    install("LevelRendererCamera::render", reinterpret_cast<void *>(&detourLevelCamera), &g_origLevelCamera);
+    install("InGamePlayScreen::_renderLevelPrep", reinterpret_cast<void *>(&detourPlayPrep), &g_origPlayPrep);
+    install("DataDrivenRenderer::render", reinterpret_cast<void *>(&detourDataDriven), &g_origDataDriven);
+    mStatus = mMissing ? "live data not available yet (probe hooks: " + std::to_string(hooked) + "/3)"
                        : "signatures resolved";
     log.info("native bridge: {}", mStatus);
   }
