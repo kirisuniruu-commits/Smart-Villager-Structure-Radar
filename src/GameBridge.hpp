@@ -23,4 +23,8 @@ std::unique_ptr<SnapshotSource> makeDemoSource();
 // Reads the real game through hooks. Inactive until signatures/offsets are configured.
 std::unique_ptr<SnapshotSource> makeNativeSource();
 
+// Installs the probe hooks once (only called when Probe Mode is first switched on).
+// Returns how many of the 3 hooks are active.
+int installProbeHooks();
+
 }  // namespace radar
