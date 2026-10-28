@@ -11,7 +11,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # NDK 30's libc++ no longer includes <cstdlib> transitively, which breaks fmt (malloc/free undeclared).
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -include cstdlib")
 
-option(RADAR_USE_SCHEMA "Publish the rich config schema (sections + credits node)" ON)
+option(RADAR_USE_SCHEMA "Publish the rich config schema (sections + credits node)" OFF)
 option(RADAR_BUILD_TESTS "Build host-side unit tests (non-Android only)" OFF)
 
 # Pure logic tests run on a PC: cmake -S . -B build-host -DRADAR_BUILD_TESTS=ON
