@@ -247,6 +247,7 @@ class RadarMod {
     std::vector<pl::modmenu::DrawCommand> cmds;
     radar::Snapshot snap;
     bool wasDrawing = false;
+    bool probeHooked = false;
     std::string lastStatus;
 
     while (mRunning.load()) {
@@ -269,6 +270,10 @@ class RadarMod {
       const auto surface = pl::modmenu::getHudSurfaceSize();
       radar::probe::g_on.store(cfg.probeMode, std::memory_order_relaxed);
       if (cfg.probeMode) {
+        if (surface.width > 0 && !probeHooked) {
+          probeHooked = true;
+          mLog->info("probe hooks installed: {}/3", radar::installProbeHooks());
+        }
         if (surface.width > 0) {
           toDrawCommands(radar::probe::draw(cfg.probePage, surface.width), cmds);
           pl::modmenu::submitDrawCommands(kModuleId, cmds);
