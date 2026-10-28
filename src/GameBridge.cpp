@@ -1,6 +1,7 @@
 // Smart Villager & Structure Radar - created by ChrisNiruu
 #include "GameBridge.hpp"
 
+#include <atomic>
 #include <chrono>
 #include <string_view>
 
@@ -42,49 +43,45 @@ void detourLevelCamera(void *t, void *ctx, void *view, void *client) {
   probe::capture(1, ctx);
   probe::capture(5, view);
   probe::capture(2, client);
-  g_origLevelCamera(t, ctx, view, client);
+  if (g_origLevelCamera) g_origLevelCamera(t, ctx, view, client);
 }
 void detourPlayPrep(void *t, void *screenCtx, void *levelRenderer, void *actor) {
   probe::capture(3, screenCtx);
   probe::capture(4, actor);
-  g_origPlayPrep(t, screenCtx, levelRenderer, actor);
+  if (g_origPlayPrep) g_origPlayPrep(t, screenCtx, levelRenderer, actor);
 }
 void detourDataDriven(void *t, void *ctx, void *renderData, void *) {
   probe::capture(0, renderData);
-  g_origDataDriven(t, ctx, renderData, nullptr);
+  if (g_origDataDriven) g_origDataDriven(t, ctx, renderData, nullptr);
+}
+
+// Resolves and hooks one function. Returns true when the hook is installed.
+bool installOne(const char *name, void *detour, Fn4 *orig) {
+  auto &log = pl::log::Logger::getOrCreate("VillagerRadar");
+  for (const auto &e : sigs::kEntries) {
+    if (std::string_view(e.name) != name || e.pattern[0] == '\0') continue;
+    const auto addr = pl::memory::resolveSignature(e.pattern, "libminecraftpe.so");
+    if (addr == 0) {
+      log.warn("probe: {} not found in this build", name);
+      return false;
+    }
+    if (pl::memory::hook(reinterpret_cast<pl::memory::FuncPtr>(addr),
+                         reinterpret_cast<pl::memory::FuncPtr>(detour),
+                         reinterpret_cast<pl::memory::FuncPtr *>(orig)) != 0) {
+      log.warn("probe: hook failed for {}", name);
+      return false;
+    }
+    return true;
+  }
+  return false;
 }
 
 class NativeSource final : public SnapshotSource {
  public:
+  // Nothing risky happens at load time: no signature scans, no hooks.
   NativeSource() {
-    auto &log = pl::log::Logger::getOrCreate("VillagerRadar");
-    for (const auto &e : sigs::kEntries) {
-      if (e.pattern[0] == '\0') {
-        if (e.required) mMissing = true;
-        continue;
-      }
-      if (pl::memory::resolveSignature(e.pattern, "libminecraftpe.so") == 0 && e.required)
-        mMissing = true;
-    }
-    int hooked = 0;
-    auto install = [&](const char *name, void *detour, Fn4 *orig) {
-      for (const auto &e : sigs::kEntries) {
-        if (std::string_view(e.name) != name || e.pattern[0] == '\0') continue;
-        const auto addr = pl::memory::resolveSignature(e.pattern, "libminecraftpe.so");
-        if (addr == 0) { log.warn("probe: {} not found in this build", name); return; }
-        if (pl::memory::hook(reinterpret_cast<pl::memory::FuncPtr>(addr),
-                             reinterpret_cast<pl::memory::FuncPtr>(detour),
-                             reinterpret_cast<pl::memory::FuncPtr *>(orig)) == 0) ++hooked;
-        else log.warn("probe: hook failed for {}", name);
-        return;
-      }
-    };
-    install("LevelRendererCamera::render", reinterpret_cast<void *>(&detourLevelCamera), &g_origLevelCamera);
-    install("InGamePlayScreen::_renderLevelPrep", reinterpret_cast<void *>(&detourPlayPrep), &g_origPlayPrep);
-    install("DataDrivenRenderer::render", reinterpret_cast<void *>(&detourDataDriven), &g_origDataDriven);
-    mStatus = mMissing ? "live data not available yet (probe hooks: " + std::to_string(hooked) + "/3)"
-                       : "signatures resolved";
-    log.info("native bridge: {}", mStatus);
+    for (const auto &e : sigs::kEntries)
+      if (e.required && e.pattern[0] == '\0') mMissing = true;
   }
 
   bool poll(Snapshot &, const RadarConfig &, float, float) override {
@@ -92,14 +89,27 @@ class NativeSource final : public SnapshotSource {
     // against sigs::kOffsets once they are filled in. Until then: fail closed, draw nothing.
     return false;
   }
-  std::string status() const override { return mStatus; }
+  std::string status() const override {
+    return mMissing ? "live data not available yet (game offsets not configured)" : "ready";
+  }
 
  private:
   bool mMissing = false;
-  std::string mStatus;
 };
 
 }  // namespace
+
+int installProbeHooks() {
+  static std::atomic<bool> attempted{false};
+  static std::atomic<int> count{0};
+  if (attempted.exchange(true)) return count.load();
+  int n = 0;
+  n += installOne("LevelRendererCamera::render", reinterpret_cast<void *>(&detourLevelCamera), &g_origLevelCamera);
+  n += installOne("InGamePlayScreen::_renderLevelPrep", reinterpret_cast<void *>(&detourPlayPrep), &g_origPlayPrep);
+  n += installOne("DataDrivenRenderer::render", reinterpret_cast<void *>(&detourDataDriven), &g_origDataDriven);
+  count.store(n);
+  return n;
+}
 
 std::unique_ptr<SnapshotSource> makeDemoSource() { return std::make_unique<DemoSource>(); }
 std::unique_ptr<SnapshotSource> makeNativeSource() { return std::make_unique<NativeSource>(); }
