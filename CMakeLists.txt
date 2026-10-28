@@ -27,29 +27,23 @@ if(NOT ANDROID)
   message(FATAL_ERROR "Build with the Android NDK toolchain (arm64-v8a), or use -DRADAR_BUILD_TESTS=ON on a PC.")
 endif()
 
-set(PRELOADER_ANDROID_ROOT "${CMAKE_CURRENT_LIST_DIR}/third_party/preloader-android"
-    CACHE PATH "preloader-android checkout (only include/pl is needed)")
-if(NOT EXISTS "${PRELOADER_ANDROID_ROOT}/include/pl/ModMenu.hpp")
-  message(FATAL_ERROR "Missing ${PRELOADER_ANDROID_ROOT}/include/pl/ModMenu.hpp")
-endif()
-
+# Official LeviLauncher SDK, pinned to the exact commit the current launcher ships.
+# Linking the `preloader` target is what lets the launcher bind the mod's calls to its own runtime;
+# without it the library can fail to load and the module never shows up.
 include(FetchContent)
-FetchContent_Declare(fmt GIT_REPOSITORY https://github.com/fmtlib/fmt.git GIT_TAG 11.2.0)
-set(FMT_DOC OFF CACHE BOOL "" FORCE)
-set(FMT_TEST OFF CACHE BOOL "" FORCE)
-set(FMT_INSTALL OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(fmt)
+FetchContent_Declare(
+  preloader_android
+  GIT_REPOSITORY https://github.com/LiteLDev/preloader-android.git
+  GIT_TAG 5d108da350ce3e7f13f51415f81e65344ecd5d14)
+FetchContent_MakeAvailable(preloader_android)
 
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/out/${ANDROID_ABI}")
 
 add_library(villager_radar SHARED src/RadarMod.cpp src/GameBridge.cpp)
-target_include_directories(villager_radar PRIVATE
-  include src "${PRELOADER_ANDROID_ROOT}/include")
+target_include_directories(villager_radar PRIVATE include src)
 target_compile_options(villager_radar PRIVATE -Wall -Wextra -fvisibility=hidden -fvisibility-inlines-hidden)
 if(RADAR_USE_SCHEMA)
   target_compile_definitions(villager_radar PRIVATE RADAR_USE_SCHEMA=1)
 endif()
 find_library(LOG_LIB log)
-target_link_libraries(villager_radar PRIVATE fmt::fmt ${LOG_LIB})
-# preloader symbols (pl::modmenu::*, pl::memory::*) are resolved by the launcher at load time
-target_link_options(villager_radar PRIVATE -Wl,--unresolved-symbols=ignore-all)
+target_link_libraries(villager_radar PRIVATE preloader ${LOG_LIB})
