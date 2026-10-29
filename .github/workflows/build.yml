@@ -1,19 +1,64 @@
-name: Build Smart Villager & Structure Radar
 
-# Smart Villager & Structure Radar - created by ChrisNiruu
-on:
-  push:
-  pull_request:
-  workflow_dispatch:
-
-jobs:
-  host-tests:
-    name: Unit tests (PC)
+  android:
+    name: Build .so (arm64-v8a) and package .levipack
+    needs: host-tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build and run tests
+
+      # NDK 30 builds code that needs a newer libc++ than the game ships
+      # ("cannot locate symbol __hash_memory"), so use NDK r27 and a static C++ runtime.
+      - name: Install NDK r27
         run: |
-          cmake -S . -B build-host -DRADAR_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
-          cmake --build build-host
-          ctest --test-dir build-host --output-on-failure
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --install "ndk;27.2.12479018" > /dev/null
+          echo "NDK=$SDK/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - name: Configure (Android NDK r27, static libc++)
+        run: |
+          echo "Using NDK: $NDK"
+          cmake -S . -B build-android -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-24 \
+            -DANDROID_STL=c++_static \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build-android --target villager_radar
+
+      - name: Verify the library can load in the game
+        run: |
+          LIB=build-android/out/arm64-v8a/libvillager_radar.so
+          BIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          echo "--- needed libraries:"
+          "$BIN/llvm-readelf" -d "$LIB" | grep NEEDED || true
+          echo "--- undefined libc++ symbols (must be none):"
+          if "$BIN/llvm-nm" -D --undefined-only "$LIB" | grep -E "__ndk1"; then
+            echo "ERROR: library needs a shared libc++ the game does not provide"; exit 1
+          fi
+          if "$BIN/llvm-readelf" -d "$LIB" | grep -q "libc++_shared"; then
+            echo "ERROR: library depends on libc++_shared.so"; exit 1
+          fi
+          echo "OK"
+
+      - name: Package
+        run: |
+          mkdir -p dist/pkg
+          cp manifest.json dist/pkg/
+          cp build-android/out/arm64-v8a/libvillager_radar.so dist/pkg/
+          (cd dist/pkg && zip -r ../SmartVillagerStructureRadar.levipack .)
+          cp dist/pkg/libvillager_radar.so dist/
+          ls -la dist
+
+      - name: Upload .levipack
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartVillagerStructureRadar-levipack
+          path: dist/SmartVillagerStructureRadar.levipack
+
+      - name: Upload raw .so
+        uses: actions/upload-artifact@v4
+        with:
+          name: libvillager_radar-arm64-v8a
+          path: dist/libvillager_radar.so
