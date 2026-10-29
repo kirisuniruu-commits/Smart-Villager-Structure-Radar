@@ -1,3 +1,22 @@
+name: Build Smart Villager & Structure Radar
+
+# Smart Villager & Structure Radar - created by ChrisNiruu
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  host-tests:
+    name: Unit tests (PC)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run tests
+        run: |
+          cmake -S . -B build-host -DRADAR_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-host
+          ctest --test-dir build-host --output-on-failure
 
   android:
     name: Build .so (arm64-v8a) and package .levipack
